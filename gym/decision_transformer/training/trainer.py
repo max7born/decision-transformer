@@ -16,9 +16,13 @@ class Trainer:
         self.eval_fns = [] if eval_fns is None else eval_fns
         self.diagnostics = dict()
 
+        self.iter=0
+
         self.start_time = time.time()
 
     def train_iteration(self, num_steps, iter_num=0, print_logs=False):
+        
+        self.iter+=1
 
         train_losses = []
         logs = dict()
@@ -37,6 +41,7 @@ class Trainer:
         eval_start = time.time()
 
         self.model.eval()
+        torch.save(self.model, f'train_models/hopper_medium-replay_model{self.iter}.pt')
         for eval_fn in self.eval_fns:
             outputs = eval_fn(self.model)
             for k, v in outputs.items():
