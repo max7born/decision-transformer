@@ -1,5 +1,6 @@
 import numpy as np
 import torch
+import os
 
 import time
 
@@ -20,7 +21,7 @@ class Trainer:
 
         self.start_time = time.time()
 
-    def train_iteration(self, num_steps, iter_num=0, print_logs=False):
+    def train_iteration(self, num_steps, iter_num=0, print_logs=False, save_path=None):
         
         self.iter+=1
 
@@ -41,7 +42,9 @@ class Trainer:
         eval_start = time.time()
 
         self.model.eval()
-        torch.save(self.model, f'train_models/hopper_medium-replay_model{self.iter}.pt')
+        if save_path is not None:
+            if not os.path.exists('train_models'): os.mkdir('train_models')
+            torch.save(self.model, f'train_models/{save_path}_model{self.iter}.pt')
         for eval_fn in self.eval_fns:
             outputs = eval_fn(self.model)
             for k, v in outputs.items():
