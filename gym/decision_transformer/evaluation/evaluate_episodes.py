@@ -51,6 +51,7 @@ def evaluate_episode(
 
         cur_state = torch.from_numpy(state).to(device=device).reshape(1, state_dim)
         states = torch.cat([states, cur_state], dim=0)
+        reward = torch.from_numpy(np.array(reward)).to(device=device) 
         rewards[-1] = reward
 
         episode_return += reward
@@ -119,6 +120,7 @@ def evaluate_episode_rtg(
 
         cur_state = torch.from_numpy(state).to(device=device).reshape(1, state_dim)
         states = torch.cat([states, cur_state], dim=0)
+        reward = torch.from_numpy(np.array(reward)).to(device=device)           ## edited
         rewards[-1] = reward
 
         if mode != 'delayed':
