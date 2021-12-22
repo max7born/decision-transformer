@@ -23,8 +23,6 @@ class Trainer:
 
     def train_iteration(self, num_steps, iter_num=0, print_logs=False, save_path=None):
         
-        self.iter+=1
-
         train_losses = []
         logs = dict()
 
@@ -43,8 +41,7 @@ class Trainer:
 
         self.model.eval()
         if save_path is not None:
-            if not os.path.exists('train_models'): os.mkdir('train_models')
-            torch.save(self.model, f'train_models/{save_path}_model{self.iter}.pt')
+            torch.save(self.model, f'{save_path}_iter{iter_num}.pt')
         for eval_fn in self.eval_fns:
             outputs = eval_fn(self.model)
             for k, v in outputs.items():
