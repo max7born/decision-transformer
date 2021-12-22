@@ -1,3 +1,6 @@
+import os
+import time
+import json
 import gym
 import numpy as np
 import torch
@@ -11,6 +14,7 @@ import sys
 from decision_transformer.evaluation.evaluate_episodes import evaluate_episode, evaluate_episode_rtg
 from decision_transformer.models.decision_transformer import DecisionTransformer
 from decision_transformer.models.mlp_bc import MLPBCModel
+from decision_transformer.models.new_mlp_bc import NewMLPBCModel
 from decision_transformer.training.act_trainer import ActTrainer
 from decision_transformer.training.seq_trainer import SequenceTrainer
 
@@ -56,6 +60,13 @@ def experiment(
         max_ep_len = 100
         env_targets = [76, 40]
         scale = 10.
+    elif env_name == 'qube':
+        from clients.quanser_robots import GentlyTerminating
+        from clients.quanser_robots.qube import Parameterized
+        env = Parameterized(GentlyTerminating(gym.make(f'Qube-{args.freq}-v0')))
+        max_ep_len = args.freq*6
+        env_targets = [2]           
+        scale = 1000.               
     else:
         raise NotImplementedError
 
@@ -66,14 +77,37 @@ def experiment(
     act_dim = env.action_space.shape[0]
 
     # load dataset
-    dataset_path = f'data/{env_name}-{dataset}-v2.pkl'
-    with open(dataset_path, 'rb') as f:
-        trajectories = pickle.load(f)
+    # if not env_name=='qube':
+    if env_name=='qube':
+        dataset_path = f'data/{env_name}-{args.freq}-{dataset}.json'
+        with open(dataset_path, 'rb') as f:
+            trajectories = json.load(f)
+        if 'env_params' in trajectories.keys(): 
+            env_params = trajectories.pop('env_params')
+        trajectories = list(trajectories.values())
+    else:
+        dataset_path = f'data/{env_name}-{dataset}-v2.pkl'
+        with open(dataset_path, 'rb') as f:
+            trajectories = pickle.load(f)
+    # else:
+    #     dataset_path = f'../../quanser_sim/data/test.pkl'
+    #     with open(dataset_path, 'rb') as f:
+    #         trajectories = pickle.load(f)
+        # with open(f'../../quanser_sim/data/test1.json', 'r') as f:
+        #     data = json.load(f)
+        #     trajectories = list(data.values()) 
+        #     print(trajectories)
 
     # save all path information into separate lists
+    # print(type(trajectories))
+    # print(trajectories[0])
+    # env_params = trajectories.pop(0)        ## pop env_params. TODO: unsafe (if env_params not in dataset, first trajectory is removed)
+    # easy fix: remove env_params from pkl and only contain in json
     mode = variant.get('mode', 'normal')
     states, traj_lens, returns = [], [], []
+    # print(type(trajectories))
     for path in trajectories:
+        path['rewards'] = np.array(path['rewards'])
         if mode == 'delayed':  # delayed: all rewards moved to end of trajectory
             path['rewards'][-1] = path['rewards'].sum()
             path['rewards'][:-1] = 0.
@@ -127,7 +161,8 @@ def experiment(
         for i in range(batch_size):
             traj = trajectories[int(sorted_inds[batch_inds[i]])]
             si = random.randint(0, traj['rewards'].shape[0] - 1)
-
+            for ind in traj:
+                traj[ind] = np.array(traj[ind])
             # get sequences from dataset
             s.append(traj['observations'][si:si + max_len].reshape(1, -1, state_dim))
             a.append(traj['actions'][si:si + max_len].reshape(1, -1, act_dim))
@@ -221,7 +256,7 @@ def experiment(
             attn_pdrop=variant['dropout'],
         )
     elif model_type == 'bc':
-        model = MLPBCModel(
+        model = NewMLPBCModel(
             state_dim=state_dim,
             act_dim=act_dim,
             max_length=K,
@@ -274,8 +309,24 @@ def experiment(
         )
         # wandb.watch(model)  # wandb has some bug
 
+    run_id = str(time.time()).split('.')[0][3:]
+    model_folder = f'../../data/train_models/{args.model_subfolder}'
+    info_folder = f'{model_folder}/info'
+
+    if not os.path.exists(f'{model_folder}/info'): os.makedirs(f'{model_folder}/info')
+
+    if env_name=='qube':
+        save_name=f'{args.env}-{args.freq}_{args.model_type}_{args.dataset}_id{run_id}'
+        print(save_name)
+    else:
+        save_name=f'/{args.env}_{args.model_type}_{args.dataset}_id{run_id}'
+
+    ## save info for run
+    with open(f'{info_folder}/{save_name}.json', 'w') as f:
+        json.dump(variant, f, indent=3)
+
+    save_path = f'{model_folder}/{save_name}'
     for iter in range(variant['max_iters']):
-        save_path=f'{args.env}_{args.dataset}'
         outputs = trainer.train_iteration(num_steps=variant['num_steps_per_iter'], iter_num=iter+1, print_logs=True, save_path=save_path)
         if log_to_wandb:
             wandb.log(outputs)
@@ -303,6 +354,8 @@ if __name__ == '__main__':
     parser.add_argument('--num_steps_per_iter', type=int, default=10000)
     parser.add_argument('--device', type=str, default='cuda')
     parser.add_argument('--log_to_wandb', '-w', type=bool, default=False)
+    parser.add_argument('--freq', type=int, default=500)
+    parser.add_argument('--model_subfolder', default='test', type=str)
     
     args = parser.parse_args()
 
