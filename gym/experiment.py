@@ -65,8 +65,25 @@ def experiment(
         from clients.quanser_robots.qube import Parameterized
         env = Parameterized(GentlyTerminating(gym.make(f'Qube-{args.freq}-v0')))
         max_ep_len = args.freq*6
-        env_targets = [2]           
-        scale = 1000.               
+        env_targets = [2, 4, 100]           
+        scale = 1.  
+    elif env_name == 'cartpole':
+        from clients.quanser_robots.common import GentlyTerminating as GentlyTerminatingCommon # , Logger
+        def get_cartpole_env(long_pendulum=False, simulation=True, swinging=True):
+            pendulum_str = {True: "Long", False: "Short"}
+            simulation_str = {True: "", False: "RR"}
+            task_str = {True: "Swing", False: "Stab"}
+
+            if not simulation:
+                pendulum_str = {True: "", False: ""}
+
+            mu = 7.5 if long_pendulum else 19.
+            env_ident_name = "Cartpole%s%s%s-v0" % (task_str[swinging], pendulum_str[long_pendulum], simulation_str[simulation])
+            return GentlyTerminatingCommon(gym.make(env_ident_name)), env_ident_name
+        env, env_ident_name = get_cartpole_env()    
+        max_ep_len=10000  
+        env_targets = [15600.]           
+        scale = 1.           
     else:
         raise NotImplementedError
 
@@ -79,11 +96,16 @@ def experiment(
     # load dataset
     # if not env_name=='qube':
     if env_name=='qube':
-        dataset_path = f'data/{env_name}-{args.freq}-{dataset}.json'
+        dataset_path = f'data/qube-{args.freq}-{dataset}.json'
         with open(dataset_path, 'rb') as f:
             trajectories = json.load(f)
         if 'env_params' in trajectories.keys(): 
             env_params = trajectories.pop('env_params')
+        trajectories = list(trajectories.values())
+    elif env_name=='cartpole':
+        dataset_path = f'data/cartpole-{dataset}.json'
+        with open(dataset_path, 'rb') as f:
+            trajectories = json.load(f)
         trajectories = list(trajectories.values())
     else:
         dataset_path = f'data/{env_name}-{dataset}-v2.pkl'
@@ -195,6 +217,20 @@ def experiment(
         rtg = torch.from_numpy(np.concatenate(rtg, axis=0)).to(dtype=torch.float32, device=device)
         timesteps = torch.from_numpy(np.concatenate(timesteps, axis=0)).to(dtype=torch.long, device=device)
         mask = torch.from_numpy(np.concatenate(mask, axis=0)).to(device=device)
+        # print('s', s)
+        # input()
+        # print('a', a)
+        # input()
+        # print('r', r)
+        # input()
+        # print('d', d)
+        # input()
+        # print('rtg', rtg)
+        # input()
+        # print('time', timesteps)
+        # input()
+        # print('mask', mask) #
+        # input()
 
         return s, a, r, d, rtg, timesteps, mask
 
@@ -310,16 +346,16 @@ def experiment(
         # wandb.watch(model)  # wandb has some bug
 
     run_id = str(time.time()).split('.')[0][3:]
+    print('RUN ID ', run_id)
     model_folder = f'../../data/train_models/{args.model_subfolder}'
     info_folder = f'{model_folder}/info'
 
     if not os.path.exists(f'{model_folder}/info'): os.makedirs(f'{model_folder}/info')
 
     if env_name=='qube':
-        save_name=f'{args.env}-{args.freq}_{args.model_type}_{args.dataset}_id{run_id}'
-        print(save_name)
+        save_name=f'qube-{args.freq}_{args.model_type}_{args.dataset}_id{run_id}'
     else:
-        save_name=f'/{args.env}_{args.model_type}_{args.dataset}_id{run_id}'
+        save_name=f'{env_name}_{args.model_type}_{args.dataset}_id{run_id}'
 
     ## save info for run
     with open(f'{info_folder}/{save_name}.json', 'w') as f:
