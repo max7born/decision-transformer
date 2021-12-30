@@ -292,6 +292,14 @@ def experiment(
             attn_pdrop=variant['dropout'],
         )
     elif model_type == 'bc':
+        model = MLPBCModel(
+            state_dim=state_dim,
+            act_dim=act_dim,
+            max_length=K,
+            hidden_size=variant['embed_dim'],
+            n_layer=variant['n_layer'],
+        )
+    elif model_type == 'sb-bc':
         model = NewMLPBCModel(
             state_dim=state_dim,
             act_dim=act_dim,
@@ -325,7 +333,7 @@ def experiment(
             loss_fn=lambda s_hat, a_hat, r_hat, s, a, r: torch.mean((a_hat - a)**2),
             eval_fns=[eval_episodes(tar) for tar in env_targets],
         )
-    elif model_type == 'bc':
+    elif model_type in ['bc', 'sb-bc']:
         trainer = ActTrainer(
             model=model,
             optimizer=optimizer,
@@ -359,7 +367,10 @@ def experiment(
 
     ## save info for run
     with open(f'{info_folder}/{save_name}.json', 'w') as f:
-        json.dump(variant, f, indent=3)
+        print(type(variant))
+        v = {'id': run_id}
+        v.update(variant)
+        json.dump(v, f, indent=3)
 
     save_path = f'{model_folder}/{save_name}'
     for iter in range(variant['max_iters']):
