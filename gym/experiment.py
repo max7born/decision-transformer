@@ -4,6 +4,7 @@ import json
 import gym
 import numpy as np
 import torch
+from torch._C import ThroughputBenchmark
 import wandb
 
 import argparse
@@ -15,6 +16,8 @@ from decision_transformer.evaluation.evaluate_episodes import evaluate_episode, 
 from decision_transformer.models.decision_transformer import DecisionTransformer
 from decision_transformer.models.mlp_bc import MLPBCModel
 from decision_transformer.models.new_mlp_bc import NewMLPBCModel
+from decision_transformer.models.decision_generic import DecisionGeneric
+from decision_transformer.models.decision_lstm import DecisionLSTM
 from decision_transformer.training.act_trainer import ActTrainer
 from decision_transformer.training.seq_trainer import SequenceTrainer
 
@@ -31,6 +34,14 @@ def experiment(
         exp_prefix,
         variant,
 ):
+
+    normalize_states = True
+    use_states = False # if False use obs, else use states
+    cluster = False
+
+    continue_training = False       # use to continue training on saved model (e.g. if not already converged)
+    # in this case, make sure that same setup is used as in original training (see info json)
+
     device = variant.get('device', 'cuda')
     log_to_wandb = variant.get('log_to_wandb', False)
 
@@ -61,40 +72,50 @@ def experiment(
         env_targets = [76, 40]
         scale = 10.
     elif env_name == 'qube':
-        from clients.quanser_robots import GentlyTerminating
-        from clients.quanser_robots.qube import Parameterized
-        env = Parameterized(GentlyTerminating(gym.make(f'Qube-{args.freq}-v0')))
+        if not cluster:
+            from clients.quanser_robots import GentlyTerminating
+            from clients.quanser_robots.qube import Parameterized
+            env = Parameterized(GentlyTerminating(gym.make(f'Qube-{args.freq}-v0')))
         max_ep_len = args.freq*6
-        env_targets = [2, 4, 100]           
-        scale = 1.  
+        env_targets = [6]           
+        scale = 1./args.freq  
     elif env_name == 'cartpole':
-        from clients.quanser_robots.common import GentlyTerminating as GentlyTerminatingCommon # , Logger
-        def get_cartpole_env(long_pendulum=False, simulation=True, swinging=True):
-            pendulum_str = {True: "Long", False: "Short"}
-            simulation_str = {True: "", False: "RR"}
-            task_str = {True: "Swing", False: "Stab"}
+        if not cluster:
+            from clients.quanser_robots.common import GentlyTerminating as GentlyTerminatingCommon # , Logger
+            def get_cartpole_env(long_pendulum=False, simulation=True, swinging=True):
+                pendulum_str = {True: "Long", False: "Short"}
+                simulation_str = {True: "", False: "RR"}
+                task_str = {True: "Swing", False: "Stab"}
 
-            if not simulation:
-                pendulum_str = {True: "", False: ""}
+                if not simulation:
+                    pendulum_str = {True: "", False: ""}
 
-            mu = 7.5 if long_pendulum else 19.
-            env_ident_name = "Cartpole%s%s%s-v0" % (task_str[swinging], pendulum_str[long_pendulum], simulation_str[simulation])
-            return GentlyTerminatingCommon(gym.make(env_ident_name)), env_ident_name
-        env, env_ident_name = get_cartpole_env()    
+                mu = 7.5 if long_pendulum else 19.
+                env_ident_name = "Cartpole%s%s%s-v0" % (task_str[swinging], pendulum_str[long_pendulum], simulation_str[simulation])
+                return GentlyTerminatingCommon(gym.make(env_ident_name)), env_ident_name
+            env, env_ident_name = get_cartpole_env()    
         max_ep_len=10000  
         env_targets = [15600.]           
-        scale = 1.           
+        scale = 1.       
+    elif env_name=='pendulum':
+        env = gym.make('Pendulum-v1')
+        max_ep_len = 200
+        env_targets = [-100, 0]  # evaluation conditioning targets
+        scale = 1.  # normalization for rewards/returns    
     else:
         raise NotImplementedError
 
     if model_type == 'bc':
         env_targets = env_targets[:1]  # since BC ignores target, no need for different evaluations
 
-    state_dim = env.observation_space.shape[0]
+    
+    if use_states:
+        state_dim = env.state_space.shape[0]
+    else:
+        state_dim = env.observation_space.shape[0]
     act_dim = env.action_space.shape[0]
 
     # load dataset
-    # if not env_name=='qube':
     if env_name=='qube':
         dataset_path = f'data/qube-{args.freq}-{dataset}.json'
         with open(dataset_path, 'rb') as f:
@@ -102,8 +123,8 @@ def experiment(
         if 'env_params' in trajectories.keys(): 
             env_params = trajectories.pop('env_params')
         trajectories = list(trajectories.values())
-    elif env_name=='cartpole':
-        dataset_path = f'data/cartpole-{dataset}.json'
+    elif env_name in ['cartpole', 'pendulum']:
+        dataset_path = f'data/{env_name}-{dataset}.json'
         with open(dataset_path, 'rb') as f:
             trajectories = json.load(f)
         trajectories = list(trajectories.values())
@@ -133,7 +154,10 @@ def experiment(
         if mode == 'delayed':  # delayed: all rewards moved to end of trajectory
             path['rewards'][-1] = path['rewards'].sum()
             path['rewards'][:-1] = 0.
-        states.append(path['observations'])
+        if use_states:
+            states.append(path['states'])
+        else: 
+            states.append(path['observations'])
         traj_lens.append(len(path['observations']))
         returns.append(path['rewards'].sum())
     traj_lens, returns = np.array(traj_lens), np.array(returns)
@@ -154,6 +178,7 @@ def experiment(
     K = variant['K']
     batch_size = variant['batch_size']
     num_eval_episodes = variant['num_eval_episodes']
+    if cluster: num_eval_episodes = 0
     pct_traj = variant.get('pct_traj', 1.)
 
     # only train on top pct_traj trajectories (for %BC experiment)
@@ -186,7 +211,10 @@ def experiment(
             for ind in traj:
                 traj[ind] = np.array(traj[ind])
             # get sequences from dataset
-            s.append(traj['observations'][si:si + max_len].reshape(1, -1, state_dim))
+            if use_states:
+                s.append(traj['states'][si:si + max_len].reshape(1, -1, state_dim))
+            else:
+                s.append(traj['observations'][si:si + max_len].reshape(1, -1, state_dim))
             a.append(traj['actions'][si:si + max_len].reshape(1, -1, act_dim))
             r.append(traj['rewards'][si:si + max_len].reshape(1, -1, 1))
             if 'terminals' in traj:
@@ -202,7 +230,7 @@ def experiment(
             # padding and state + reward normalization
             tlen = s[-1].shape[1]
             s[-1] = np.concatenate([np.zeros((1, max_len - tlen, state_dim)), s[-1]], axis=1)
-            s[-1] = (s[-1] - state_mean) / state_std
+            if normalize_states: s[-1] = (s[-1] - state_mean) / state_std
             a[-1] = np.concatenate([np.ones((1, max_len - tlen, act_dim)) * -10., a[-1]], axis=1)
             r[-1] = np.concatenate([np.zeros((1, max_len - tlen, 1)), r[-1]], axis=1)
             d[-1] = np.concatenate([np.ones((1, max_len - tlen)) * 2, d[-1]], axis=1)
@@ -239,7 +267,7 @@ def experiment(
             returns, lengths = [], []
             for _ in range(num_eval_episodes):
                 with torch.no_grad():
-                    if model_type == 'dt':
+                    if model_type in ['dt', 'dlstm', 'dg']:
                         ret, length = evaluate_episode_rtg(
                             env,
                             state_dim,
@@ -252,6 +280,8 @@ def experiment(
                             state_mean=state_mean,
                             state_std=state_std,
                             device=device,
+                            normalize_states=normalize_states,
+                            use_states=use_states,
                         )
                     else:
                         ret, length = evaluate_episode(
@@ -265,6 +295,8 @@ def experiment(
                             state_mean=state_mean,
                             state_std=state_std,
                             device=device,
+                            normalize_states=normalize_states,
+                            use_states=use_states,
                         )
                 returns.append(ret)
                 lengths.append(length)
@@ -307,9 +339,44 @@ def experiment(
             hidden_size=variant['embed_dim'],
             n_layer=variant['n_layer'],
         )
+    elif model_type == 'dlstm':
+        model = DecisionLSTM(
+            state_dim=state_dim,
+            act_dim=act_dim,
+            max_length=K,
+            max_ep_len=max_ep_len,
+            hidden_size=variant['embed_dim'],
+            num_layers = variant['n_layer'],
+            batch_first=False,
+            dropout = variant['dropout'],
+            # n_layer=variant['n_layer'],
+            # n_head=variant['n_head'],
+            # n_inner=4*variant['embed_dim'],
+            # activation_function=variant['activation_function'],
+            # n_positions=1024,
+            # resid_pdrop=variant['dropout'],
+            # attn_pdrop=variant['dropout'],
+        )
+    elif model_type == 'dg':
+        model = DecisionGeneric(
+            state_dim=state_dim,
+            act_dim=act_dim,
+            max_length=K,
+            max_ep_len=max_ep_len,
+            hidden_size=variant['embed_dim'],
+        )
     else:
         raise NotImplementedError
+    
+    start_iter = 1
 
+    if continue_training:
+        ## continue training from saved model
+        model_iter = 10
+        model = torch.load(
+            f'../../data/train_models/311221/qube-250_dt_swup-small_id0962001_iter{model_iter}.pt')
+        start_iter = model_iter + 1
+    
     model = model.to(device=device)
 
     warmup_steps = variant['warmup_steps']
@@ -323,7 +390,7 @@ def experiment(
         lambda steps: min((steps+1)/warmup_steps, 1)
     )
 
-    if model_type == 'dt':
+    if model_type in ['dt', 'dlstm', 'dg']:
         trainer = SequenceTrainer(
             model=model,
             optimizer=optimizer,
@@ -370,11 +437,17 @@ def experiment(
         print(type(variant))
         v = {'id': run_id}
         v.update(variant)
+        v.update(
+            {'normalize_states': normalize_states,
+            'use_states': use_states,
+            'continue_training': continue_training,
+            'continue_start_iter': start_iter}
+        )
         json.dump(v, f, indent=3)
 
     save_path = f'{model_folder}/{save_name}'
-    for iter in range(variant['max_iters']):
-        outputs = trainer.train_iteration(num_steps=variant['num_steps_per_iter'], iter_num=iter+1, print_logs=True, save_path=save_path)
+    for iter in range(start_iter, start_iter+variant['max_iters']):
+        outputs = trainer.train_iteration(num_steps=variant['num_steps_per_iter'], iter_num=iter, print_logs=True, save_path=save_path)
         if log_to_wandb:
             wandb.log(outputs)
 
