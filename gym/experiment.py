@@ -4,7 +4,6 @@ import json
 import gym
 import numpy as np
 import torch
-from torch._C import ThroughputBenchmark
 import wandb
 
 import argparse
