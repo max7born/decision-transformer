@@ -72,12 +72,12 @@ def experiment(
         scale = 10.
     elif env_name == 'qube':
         if not cluster:
-            from clients.quanser_robots import GentlyTerminating
-            from clients.quanser_robots.qube import Parameterized
+            from quanser_robots import GentlyTerminating
+            from quanser_robots.qube import Parameterized
             env = Parameterized(GentlyTerminating(gym.make(f'Qube-{args.freq}-v0')))
         max_ep_len = args.freq*6
         env_targets = [6]           
-        scale = 1./args.freq  
+        scale = 1. 
     elif env_name == 'cartpole':
         if not cluster:
             from clients.quanser_robots.common import GentlyTerminating as GentlyTerminatingCommon # , Logger
@@ -101,6 +101,11 @@ def experiment(
         max_ep_len = 200
         env_targets = [-100, 0]  # evaluation conditioning targets
         scale = 1.  # normalization for rewards/returns    
+    elif env_name=='mountain-car':
+        env = None
+        max_ep_len = 1000
+        env_targets = [100]
+        scale = 1.
     else:
         raise NotImplementedError
 
@@ -114,19 +119,29 @@ def experiment(
         state_dim = env.observation_space.shape[0]
     act_dim = env.action_space.shape[0]
 
+    load_json = False
+
     # load dataset
     if env_name=='qube':
-        dataset_path = f'data/qube-{args.freq}-{dataset}.json'
-        with open(dataset_path, 'rb') as f:
-            trajectories = json.load(f)
-        if 'env_params' in trajectories.keys(): 
-            env_params = trajectories.pop('env_params')
-        trajectories = list(trajectories.values())
-    elif env_name in ['cartpole', 'pendulum']:
-        dataset_path = f'data/{env_name}-{dataset}.json'
-        with open(dataset_path, 'rb') as f:
-            trajectories = json.load(f)
-        trajectories = list(trajectories.values())
+        dataset_path = f'data/qube-{args.freq}-{dataset}'
+        if load_json:
+            with open(f'{dataset_path}.json', 'r') as f:
+                trajectories = json.load(f)
+            if 'env_params' in trajectories.keys(): 
+                env_params = trajectories.pop('env_params')
+            trajectories = list(trajectories.values())
+        else:
+            with open(f'{dataset_path}.pkl', 'rb') as f:
+                trajectories = pickle.load(f)     
+    elif env_name in ['cartpole', 'pendulum', 'mountain-car']:
+        dataset_path = f'data/{env_name}-{dataset}'
+        if load_json:
+            with open(f'{dataset_path}.json', 'r') as f:
+                trajectories = json.load(f)
+            trajectories = list(trajectories.values())
+        else:
+            with open(f'{dataset_path}.pkl', 'rb') as f:
+                trajectories = pickle.load(f)    
     else:
         dataset_path = f'data/{env_name}-{dataset}-v2.pkl'
         with open(dataset_path, 'rb') as f:
