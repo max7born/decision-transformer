@@ -13,6 +13,8 @@ def evaluate_episode(
         mode='normal',
         state_mean=0.,
         state_std=1.,
+        normalize_states=True,
+        use_states=False,
 ):
 
     model.eval()
@@ -38,8 +40,11 @@ def evaluate_episode(
         actions = torch.cat([actions, torch.zeros((1, act_dim), device=device)], dim=0)
         rewards = torch.cat([rewards, torch.zeros(1, device=device)])
 
+        state_input = states.to(dtype=torch.float32)
+        if normalize_states:
+            state_input = (state_input - state_mean) / state_std 
         action = model.get_action(
-            (states.to(dtype=torch.float32) - state_mean) / state_std,
+            state_input,
             actions.to(dtype=torch.float32),
             rewards.to(dtype=torch.float32),
             target_return=target_return,
@@ -75,6 +80,8 @@ def evaluate_episode_rtg(
         device='cuda',
         target_return=None,
         mode='normal',
+        normalize_states=True,
+        use_states=False,
     ):
 
     model.eval()
@@ -84,6 +91,8 @@ def evaluate_episode_rtg(
     state_std = torch.from_numpy(state_std).to(device=device)
 
     state = env.reset()
+    if use_states: 
+        state = env.get_state()
     if mode == 'noise':
         state = state + np.random.normal(0, 0.1, size=state.shape)
 
@@ -105,9 +114,12 @@ def evaluate_episode_rtg(
         # add padding
         actions = torch.cat([actions, torch.zeros((1, act_dim), device=device)], dim=0)
         rewards = torch.cat([rewards, torch.zeros(1, device=device)])
-
+        
+        state_input = states.to(dtype=torch.float32)
+        if normalize_states:
+            state_input = (state_input - state_mean) / state_std 
         action = model.get_action(
-            (states.to(dtype=torch.float32) - state_mean) / state_std,
+            state_input,
             actions.to(dtype=torch.float32),
             rewards.to(dtype=torch.float32),
             target_return.to(dtype=torch.float32),
@@ -116,7 +128,9 @@ def evaluate_episode_rtg(
         actions[-1] = action
         action = action.detach().cpu().numpy()
 
-        state, reward, done, _ = env.step(action)
+        state, reward, done, _info = env.step(action)
+
+        if use_states: state = _info['s']
 
         cur_state = torch.from_numpy(state).to(device=device).reshape(1, state_dim)
         states = torch.cat([states, cur_state], dim=0)
