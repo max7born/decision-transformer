@@ -1,5 +1,22 @@
+from mimetypes import init
 import numpy as np
 import torch
+
+def generate_stabilize_init_state_qube():
+    p1, p2 = np.random.choice([0, 1]), np.random.choice([0, 1])
+    offset_al, offset_th = np.random.uniform(np.pi/24, np.pi/12), np.random.uniform(np.pi/24, np.pi/12)
+    al = 0. + (offset_al if p1==0 else -offset_al)
+    th = np.pi + (offset_th if p2==0 else -offset_th)
+    al_d, th_d = 0., 0.
+    return np.array([al, th, al_d, th_d], dtype=np.float32)
+    #return np.array([0.953149,  0.458834,  1.051735, -0.956216], dtype=np.float32)
+
+def reset_quanser(env, state):
+    env.reset()
+    env.unwrapped._sim_state = np.copy(state)
+    env.unwrapped._state = np.copy(state) #env.unwrapped._zero_sim_step()
+    env._state = np.copy(state)
+    return env.unwrapped.step(np.array([0.0]))[0]
 
 
 def evaluate_episode(
@@ -23,7 +40,13 @@ def evaluate_episode(
     state_mean = torch.from_numpy(state_mean).to(device=device)
     state_std = torch.from_numpy(state_std).to(device=device)
 
-    state = env.reset()
+    stabilize = False
+
+    if stabilize:
+        init_state = generate_stabilize_init_state_qube()
+        state = reset_quanser(env, init_state)
+    else:
+        state = env.reset()
 
     # we keep all the histories on the device
     # note that the latest action and reward will be "padding"
@@ -90,7 +113,14 @@ def evaluate_episode_rtg(
     state_mean = torch.from_numpy(state_mean).to(device=device)
     state_std = torch.from_numpy(state_std).to(device=device)
 
-    state = env.reset()
+    stabilize = True
+
+    if stabilize:
+        init_state = generate_stabilize_init_state_qube()
+        state = reset_quanser(env, init_state)
+    else:
+        state = env.reset()
+
     if use_states: 
         state = env.get_state()
     if mode == 'noise':

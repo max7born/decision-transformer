@@ -7,6 +7,8 @@ import transformers
 from decision_transformer.models.model import TrajectoryModel
 from decision_transformer.models.trajectory_gpt2 import GPT2Model
 
+from .utils import MultiplyByScalarLayer
+
 
 class DecisionTransformer(TrajectoryModel):
 
@@ -47,8 +49,9 @@ class DecisionTransformer(TrajectoryModel):
         # note: we don't predict states or returns for the paper
         self.predict_state = torch.nn.Linear(hidden_size, self.state_dim)
         self.predict_action = nn.Sequential(
-            *([nn.Linear(hidden_size, self.act_dim)] + ([nn.Tanh()] if action_tanh else []))
+            *([nn.Linear(hidden_size, self.act_dim)] + ([nn.Tanh()] if action_tanh else []) + ([MultiplyByScalarLayer(scalar=3.)] if action_tanh else []))
         )
+        print('action_tanh', action_tanh)
         self.predict_return = torch.nn.Linear(hidden_size, 1)
 
     def forward(self, states, actions, rewards, returns_to_go, timesteps, attention_mask=None):
@@ -59,6 +62,7 @@ class DecisionTransformer(TrajectoryModel):
             # attention mask for GPT: 1 if can be attended to, 0 if not
             attention_mask = torch.ones((batch_size, seq_length), dtype=torch.long)
 
+        
         # embed each modality with a different head
         state_embeddings = self.embed_state(states)
         action_embeddings = self.embed_action(actions)
@@ -74,19 +78,22 @@ class DecisionTransformer(TrajectoryModel):
         # which works nice in an autoregressive sense since states predict actions
         stacked_inputs = torch.stack(
             (returns_embeddings, state_embeddings, action_embeddings), dim=1
+        )
+        stacked_inputs = torch.stack(
+            (returns_embeddings, state_embeddings, action_embeddings), dim=1
         ).permute(0, 2, 1, 3).reshape(batch_size, 3*seq_length, self.hidden_size)
         stacked_inputs = self.embed_ln(stacked_inputs)
 
         # to make the attention mask fit the stacked inputs, have to stack it as well
         stacked_attention_mask = torch.stack(
             (attention_mask, attention_mask, attention_mask), dim=1
-        ).permute(0, 2, 1).reshape(batch_size, 3*seq_length)
+        ).permute(0, 2, 1).reshape(batch_size, 3*seq_length)   
 
         # we feed in the input embeddings (not word indices as in NLP) to the model
         transformer_outputs = self.transformer(
             inputs_embeds=stacked_inputs,
             attention_mask=stacked_attention_mask,
-        )
+        )      
         x = transformer_outputs['last_hidden_state']
 
         # reshape x so that the second dimension corresponds to the original
@@ -97,6 +104,8 @@ class DecisionTransformer(TrajectoryModel):
         return_preds = self.predict_return(x[:,2])  # predict next return given state and action
         state_preds = self.predict_state(x[:,2])    # predict next state given state and action
         action_preds = self.predict_action(x[:,1])  # predict next action given state
+        # action_preds *= 5  
+        #print(action_preds)                         
 
         return state_preds, action_preds, return_preds
 
@@ -129,8 +138,7 @@ class DecisionTransformer(TrajectoryModel):
                 dim=1).to(dtype=torch.float32)
             timesteps = torch.cat(
                 [torch.zeros((timesteps.shape[0], self.max_length-timesteps.shape[1]), device=timesteps.device), timesteps],
-                dim=1
-            ).to(dtype=torch.long)
+                dim=1).to(dtype=torch.long)
         else:
             attention_mask = None
 

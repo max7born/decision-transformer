@@ -1,6 +1,7 @@
 import numpy as np
 import torch
 import torch.nn as nn
+from .utils import MultiplyByScalarLayer
 
 from decision_transformer.models.model import TrajectoryModel
 
@@ -24,17 +25,21 @@ class NewMLPBCModel(TrajectoryModel):
                 nn.Tanh()
             ])
         layers.extend([
-            nn.Linear(hidden_size, self.act_dim),
-            nn.Tanh(),
+            nn.Linear(hidden_size, self.act_dim), nn.Tanh(), MultiplyByScalarLayer(scalar=3.),
         ])
 
         self.model = nn.Sequential(*layers)
 
     def forward(self, states, actions, rewards, attention_mask=None, target_return=None):
-
+        #print('1', states.shape)
         states = states[:,-self.max_length:].reshape(states.shape[0], -1)  # concat states
-        actions = self.model(states).reshape(states.shape[0], 1, self.act_dim)
-
+        actions = self.model(states)
+        #print('2', states.shape)
+        #print('3', actions.shape)
+        #print('bf actions', actions)
+        #print(states.shape[0], self.act_dim)
+        actions = actions.reshape(states.shape[0], 1, self.act_dim)
+        #print('af actions', actions)
         return None, actions, None
 
     def get_action(self, states, actions, rewards, **kwargs):
@@ -45,4 +50,6 @@ class NewMLPBCModel(TrajectoryModel):
                              dtype=torch.float32, device=states.device), states], dim=1)
         states = states.to(dtype=torch.float32)
         _, actions, _ = self.forward(states, None, None, **kwargs)
+        #print(actions)
+        #print(actions[0, -1])
         return actions[0,-1]
