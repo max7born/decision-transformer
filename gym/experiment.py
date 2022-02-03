@@ -17,6 +17,7 @@ from decision_transformer.models.mlp_bc import MLPBCModel
 from decision_transformer.models.new_mlp_bc import NewMLPBCModel
 from decision_transformer.models.decision_generic import DecisionGeneric
 from decision_transformer.models.decision_lstm import DecisionLSTM
+from decision_transformer.models.decision_bc import DecisionBC
 from decision_transformer.training.act_trainer import ActTrainer
 from decision_transformer.training.seq_trainer import SequenceTrainer
 
@@ -96,11 +97,16 @@ def experiment(
         max_ep_len=10000  
         env_targets = [15600.]           
         scale = 1.       
-    elif env_name=='pendulum':
+    elif env_name=='openai-pendulum':
         env = gym.make('Pendulum-v1')
         max_ep_len = 200
         env_targets = [-100, 0]  # evaluation conditioning targets
-        scale = 1.  # normalization for rewards/returns    
+        scale = 1.  # normalization for rewards/returns   
+    elif env_name=='mujoco-pendulum':
+        env = gym.make('InvertedPendulum-v2')
+        max_ep_len = 1000
+        env_targets = [1000]  # evaluation conditioning targets
+        scale = 1.  # normalization for rewards/returns
     elif env_name=='mountain-car':
         env = None
         max_ep_len = 1000
@@ -112,7 +118,7 @@ def experiment(
     if model_type == 'bc':
         env_targets = env_targets[:1]  # since BC ignores target, no need for different evaluations
 
-    
+    print(type(env_targets))
     if use_states:
         state_dim = env.state_space.shape[0]
     else:
@@ -132,8 +138,13 @@ def experiment(
             trajectories = list(trajectories.values())
         else:
             with open(f'{dataset_path}.pkl', 'rb') as f:
-                trajectories = pickle.load(f)     
-    elif env_name in ['cartpole', 'pendulum', 'mountain-car']:
+                trajectories = pickle.load(f)
+                for t in trajectories:
+                    t['observations'] = np.array(t['observations'])     
+                    t['actions'] = np.array(t['actions'])     
+                    t['rewards'] = np.array(t['rewards'])     
+                    t['dones'][-1] = False    
+    elif env_name in ['cartpole', 'openai-pendulum', 'mujoco-pendulum', 'mountain-car']:
         dataset_path = f'data/{env_name}-{dataset}'
         if load_json:
             with open(f'{dataset_path}.json', 'r') as f:
@@ -201,7 +212,7 @@ def experiment(
     num_trajectories = 1
     timesteps = traj_lens[sorted_inds[-1]]
     ind = len(trajectories) - 2
-    while ind >= 0 and timesteps + traj_lens[sorted_inds[ind]] < num_timesteps:
+    while ind >= 0 and timesteps + traj_lens[sorted_inds[ind]] <= num_timesteps:            # edited
         timesteps += traj_lens[sorted_inds[ind]]
         num_trajectories += 1
         ind -= 1
@@ -281,7 +292,7 @@ def experiment(
             returns, lengths = [], []
             for _ in range(num_eval_episodes):
                 with torch.no_grad():
-                    if model_type in ['dt', 'dlstm', 'dg']:
+                    if model_type in ['dt', 'dlstm', 'dg', 'dbc']:
                         ret, length = evaluate_episode_rtg(
                             env,
                             state_dim,
@@ -336,6 +347,7 @@ def experiment(
             n_positions=1024,
             resid_pdrop=variant['dropout'],
             attn_pdrop=variant['dropout'],
+            action_tanh=True,
         )
     elif model_type == 'bc':
         model = MLPBCModel(
@@ -363,6 +375,7 @@ def experiment(
             num_layers = variant['n_layer'],
             batch_first=False,
             dropout = variant['dropout'],
+            action_tanh=True,
             # n_layer=variant['n_layer'],
             # n_head=variant['n_head'],
             # n_inner=4*variant['embed_dim'],
@@ -378,6 +391,16 @@ def experiment(
             max_length=K,
             max_ep_len=max_ep_len,
             hidden_size=variant['embed_dim'],
+        )
+    elif model_type == 'dbc':
+        model = DecisionBC(
+            state_dim=state_dim,
+            act_dim=act_dim,
+            max_length=K,
+            max_ep_len=max_ep_len,
+            hidden_size=variant['embed_dim'],
+            action_tanh = True,
+            n_head = 1,
         )
     else:
         raise NotImplementedError
@@ -404,7 +427,7 @@ def experiment(
         lambda steps: min((steps+1)/warmup_steps, 1)
     )
 
-    if model_type in ['dt', 'dlstm', 'dg']:
+    if model_type in ['dt', 'dlstm', 'dg', 'dbc']:
         trainer = SequenceTrainer(
             model=model,
             optimizer=optimizer,
