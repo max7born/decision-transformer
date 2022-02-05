@@ -4,6 +4,7 @@ import torch.nn as nn
 from torch.autograd import Variable
 
 from decision_transformer.models.model import TrajectoryModel
+from .utils import MultiplyByScalarLayer
 
 class DecisionLSTM(TrajectoryModel):
 
@@ -38,7 +39,7 @@ class DecisionLSTM(TrajectoryModel):
         # note: we don't predict states or returns for the paper
         self.predict_state = nn.Linear(hidden_size, self.state_dim)
         self.predict_action = nn.Sequential(
-            *([nn.Linear(hidden_size, self.act_dim)] + ([nn.Tanh()] if action_tanh else []))
+            *([nn.Linear(hidden_size, self.act_dim)] + ([nn.Tanh()] if action_tanh else []) + ([MultiplyByScalarLayer(scalar=5)] if action_tanh else []))
         )
         self.predict_return = nn.Linear(hidden_size, 1)
 
@@ -49,12 +50,12 @@ class DecisionLSTM(TrajectoryModel):
         state_embeddings = self.embed_state(states)
         action_embeddings = self.embed_action(actions)
         returns_embeddings = self.embed_return(returns_to_go)
-        time_embeddings = self.embed_timestep(timesteps)
+        #time_embeddings = self.embed_timestep(timesteps)
 
         # time embeddings are treated similar to positional embeddings
-        state_embeddings = state_embeddings + time_embeddings
-        action_embeddings = action_embeddings + time_embeddings
-        returns_embeddings = returns_embeddings + time_embeddings
+        #state_embeddings = state_embeddings + time_embeddings
+        #action_embeddings = action_embeddings + time_embeddings
+        #returns_embeddings = returns_embeddings + time_embeddings
 
         # this makes the sequence look like (R_1, s_1, a_1, R_2, s_2, a_2, ...)
         # which works nice in an autoregressive sense since states predict actions
