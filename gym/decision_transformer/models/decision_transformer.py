@@ -58,6 +58,8 @@ class DecisionTransformer(TrajectoryModel):
 
         batch_size, seq_length = states.shape[0], states.shape[1]
 
+        #attention_mask = None
+
         if attention_mask is None:
             # attention mask for GPT: 1 if can be attended to, 0 if not
             attention_mask = torch.ones((batch_size, seq_length), dtype=torch.long)
@@ -68,11 +70,15 @@ class DecisionTransformer(TrajectoryModel):
         action_embeddings = self.embed_action(actions)
         returns_embeddings = self.embed_return(returns_to_go)
         time_embeddings = self.embed_timestep(timesteps)
+        #print(time_embeddings)
+        #input()
 
         # time embeddings are treated similar to positional embeddings
-        state_embeddings = state_embeddings + time_embeddings
-        action_embeddings = action_embeddings + time_embeddings
-        returns_embeddings = returns_embeddings + time_embeddings
+        pos_embeddings = False
+        if pos_embeddings:
+            state_embeddings = state_embeddings + time_embeddings
+            action_embeddings = action_embeddings + time_embeddings
+            returns_embeddings = returns_embeddings + time_embeddings
 
         # this makes the sequence look like (R_1, s_1, a_1, R_2, s_2, a_2, ...)
         # which works nice in an autoregressive sense since states predict actions
@@ -88,6 +94,7 @@ class DecisionTransformer(TrajectoryModel):
         stacked_attention_mask = torch.stack(
             (attention_mask, attention_mask, attention_mask), dim=1
         ).permute(0, 2, 1).reshape(batch_size, 3*seq_length)   
+        # print(attention_mask)
 
         # we feed in the input embeddings (not word indices as in NLP) to the model
         transformer_outputs = self.transformer(
@@ -96,16 +103,22 @@ class DecisionTransformer(TrajectoryModel):
         )      
         x = transformer_outputs['last_hidden_state']
 
+        #print(x.shape)
+
         # reshape x so that the second dimension corresponds to the original
         # returns (0), states (1), or actions (2); i.e. x[:,1,t] is the token for s_t
         x = x.reshape(batch_size, seq_length, 3, self.hidden_size).permute(0, 2, 1, 3)
+
+        
 
         # get predictions
         return_preds = self.predict_return(x[:,2])  # predict next return given state and action
         state_preds = self.predict_state(x[:,2])    # predict next state given state and action
         action_preds = self.predict_action(x[:,1])  # predict next action given state
         # action_preds *= 5  
-        #print(action_preds)                         
+        #print(action_preds)    
+
+        #print('4', action_preds.shape)                     
 
         return state_preds, action_preds, return_preds
 

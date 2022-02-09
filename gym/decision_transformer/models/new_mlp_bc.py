@@ -32,8 +32,8 @@ class NewMLPBCModel(TrajectoryModel):
 
     def forward(self, states, actions, rewards, attention_mask=None, target_return=None):
         #print('1', states.shape)
-        states = states[:,-self.max_length:].reshape(states.shape[0], -1)  # concat states
-        actions = self.model(states)
+        #states = states[:,-self.max_length:].reshape(states.shape[0], -1)  # concat states
+        actions = self.model(states[:,-self.max_length:].reshape(states.shape[0], -1))
         #print('2', states.shape)
         #print('3', actions.shape)
         #print('bf actions', actions)
