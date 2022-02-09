@@ -18,8 +18,11 @@ from decision_transformer.models.new_mlp_bc import NewMLPBCModel
 from decision_transformer.models.decision_generic import DecisionGeneric
 from decision_transformer.models.decision_lstm import DecisionLSTM
 from decision_transformer.models.decision_bc import DecisionBC
+from decision_transformer.models.decision_transformer_torch import DecisionTransformerTorch
 from decision_transformer.training.act_trainer import ActTrainer
 from decision_transformer.training.seq_trainer import SequenceTrainer
+
+from stable_bl_algos.inv_pend import InvertedPendulumEnv
 
 
 def discount_cumsum(x, gamma):
@@ -103,7 +106,8 @@ def experiment(
         env_targets = [-100, 0]  # evaluation conditioning targets
         scale = 1.  # normalization for rewards/returns   
     elif env_name=='mujoco-pendulum':
-        env = gym.make('InvertedPendulum-v2')
+        #env = gym.make('InvertedPendulum-v2')
+        env = InvertedPendulumEnv(offset=0.2)
         max_ep_len = 1000
         env_targets = [1000]  # evaluation conditioning targets
         scale = 1.  # normalization for rewards/returns
@@ -292,7 +296,7 @@ def experiment(
             returns, lengths = [], []
             for _ in range(num_eval_episodes):
                 with torch.no_grad():
-                    if model_type in ['dt', 'dlstm', 'dg', 'dbc']:
+                    if model_type in ['dt', 'dlstm', 'dg', 'dbc', 'dt-torch']:
                         ret, length = evaluate_episode_rtg(
                             env,
                             state_dim,
@@ -402,6 +406,15 @@ def experiment(
             action_tanh = True,
             n_head = 1,
         )
+    elif model_type=='dt-torch':
+        model = DecisionTransformerTorch(
+            state_dim=state_dim,
+            act_dim=act_dim,
+            max_length=K,
+            max_ep_len=max_ep_len,
+            hidden_size=variant['embed_dim'],
+            action_tanh=True,
+        )
     else:
         raise NotImplementedError
     
@@ -427,7 +440,7 @@ def experiment(
         lambda steps: min((steps+1)/warmup_steps, 1)
     )
 
-    if model_type in ['dt', 'dlstm', 'dg', 'dbc']:
+    if model_type in ['dt', 'dlstm', 'dg', 'dbc', 'dt-torch']:
         trainer = SequenceTrainer(
             model=model,
             optimizer=optimizer,
