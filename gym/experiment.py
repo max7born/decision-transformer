@@ -487,7 +487,8 @@ def experiment(
         )
         # wandb.watch(model)  # wandb has some bug
 
-    run_id = str(time.time()).split('.')[0][3:]
+    #run_id = str(time.time()).split('.')[0][3:]
+    run_id = str(np.random.randint(0, 1e7)).zfill(7)
     print('RUN ID ', run_id)
     model_folder = f'/work/scratch/ms37pyje/experiments-100222/train_models/{args.model_subfolder}'
     info_folder = f'{model_folder}/info'
