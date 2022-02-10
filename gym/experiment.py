@@ -496,12 +496,14 @@ def experiment(
     model_folder = f'/work/scratch/ms37pyje/experiments-100222/train_models/{args.model_subfolder}'
     info_folder = f'{model_folder}/info'
 
+    v = variant.update({'run_id': run_id})
+
     if log_to_wandb:
         wandb.init(
             name=exp_prefix,
             group=group_name,
             project='test-exp',
-            config=variant.update({'run_id': run_id})
+            config=v,
         )
         # wandb.watch(model)  # wandb has some bug
 
@@ -559,4 +561,4 @@ if __name__ == '__main__':
     
     args = parser.parse_args()
 
-    experiment('gym-experiment', variant=vars(args))
+    experiment('exp', variant=vars(args))
