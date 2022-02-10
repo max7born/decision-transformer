@@ -22,8 +22,6 @@ from decision_transformer.models.decision_transformer_torch import DecisionTrans
 from decision_transformer.training.act_trainer import ActTrainer
 from decision_transformer.training.seq_trainer import SequenceTrainer
 
-from stable_bl_algos.inv_pend import InvertedPendulumEnv
-
 
 def discount_cumsum(x, gamma):
     discount_cumsum = np.zeros_like(x)
@@ -118,7 +116,9 @@ def experiment(
     elif env_name=='mujoco-pendulum':
         #env = gym.make('InvertedPendulum-v2')
         if cluster: env = None
-        else: env = InvertedPendulumEnv(offset=0.2)
+        else: 
+            from stable_bl_algos.inv_pend import InvertedPendulumEnv
+            env = InvertedPendulumEnv(offset=0.2)
         max_ep_len = 1000
         env_targets = [1000]  # evaluation conditioning targets
         scale = 1.  # normalization for rewards/returns
