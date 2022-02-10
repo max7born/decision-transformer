@@ -498,13 +498,13 @@ def experiment(
 
     v = dict(variant)
     v['run_id'] = run_id
-    print(v)
+    #print(v)
 
     if log_to_wandb:
         wandb.init(
             name=exp_prefix,
             group=group_name,
-            project='test-exp',
+            project='experiments-100222',
             config=v,
         )
         # wandb.watch(model)  # wandb has some bug
