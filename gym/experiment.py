@@ -490,15 +490,6 @@ def experiment(
             eval_fns=[eval_episodes(tar) for tar in env_targets],
         )
 
-    if log_to_wandb:
-        wandb.init(
-            name=exp_prefix,
-            group=group_name,
-            project='test-exp',
-            config=variant
-        )
-        # wandb.watch(model)  # wandb has some bug
-
     #run_id = str(time.time()).split('.')[0][3:]
     run_id = str(np.random.randint(0, 1e7)).zfill(7)
     print('RUN ID ', run_id)
@@ -506,7 +497,13 @@ def experiment(
     info_folder = f'{model_folder}/info'
 
     if log_to_wandb:
-        wandb.log(dict(run_id=run_id))
+        wandb.init(
+            name=exp_prefix,
+            group=group_name,
+            project='test-exp',
+            config=variant.update({'run_id': run_id})
+        )
+        # wandb.watch(model)  # wandb has some bug
 
     if not os.path.exists(f'{model_folder}/info'): os.makedirs(f'{model_folder}/info')
 
