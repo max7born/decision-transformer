@@ -496,7 +496,9 @@ def experiment(
     model_folder = f'/work/scratch/ms37pyje/experiments-100222/train_models/{args.model_subfolder}'
     info_folder = f'{model_folder}/info'
 
-    v = variant.update({'run_id': run_id})
+    v = dict(variant)
+    v['run_id'] = run_id
+    print(v)
 
     if log_to_wandb:
         wandb.init(
@@ -525,6 +527,7 @@ def experiment(
             'continue_training': continue_training,
             'continue_start_iter': start_iter}
         )
+        print(v)
         json.dump(v, f, indent=3)
 
     save_path = f'{model_folder}/{save_name}'
