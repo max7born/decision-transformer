@@ -40,7 +40,7 @@ def experiment(
 
     normalize_states = True
     use_states = False # if False use obs, else use states
-    cluster = False
+    cluster = True
 
     continue_training = False       # use to continue training on saved model (e.g. if not already converged)
     # in this case, make sure that same setup is used as in original training (see info json)
@@ -58,30 +58,36 @@ def experiment(
         max_ep_len = 1000
         env_targets = [3600, 1800]  # evaluation conditioning targets
         scale = 1000.  # normalization for rewards/returns
+        env_max_act=1.
     elif env_name == 'halfcheetah':
         env = gym.make('HalfCheetah-v3')
         max_ep_len = 1000
         env_targets = [12000, 6000]
         scale = 1000.
+        env_max_act=1.
     elif env_name == 'walker2d':
         env = gym.make('Walker2d-v3')
         max_ep_len = 1000
         env_targets = [5000, 2500]
         scale = 1000.
+        env_max_act=1.
     elif env_name == 'reacher2d':
         from decision_transformer.envs.reacher_2d import Reacher2dEnv
         env = Reacher2dEnv()
         max_ep_len = 100
         env_targets = [76, 40]
         scale = 10.
+        env_max_act=1.
     elif env_name == 'qube':
         if not cluster:
             from quanser_robots import GentlyTerminating
             from quanser_robots.qube import Parameterized
             env = Parameterized(GentlyTerminating(gym.make(f'Qube-{args.freq}-v0')))
+        else: env = None
         max_ep_len = args.freq*6
         env_targets = [6]           
         scale = 1. 
+        env_max_act=5.
     elif env_name == 'cartpole':
         if not cluster:
             from clients.quanser_robots.common import GentlyTerminating as GentlyTerminatingCommon # , Logger
@@ -96,33 +102,39 @@ def experiment(
                 mu = 7.5 if long_pendulum else 19.
                 env_ident_name = "Cartpole%s%s%s-v0" % (task_str[swinging], pendulum_str[long_pendulum], simulation_str[simulation])
                 return GentlyTerminatingCommon(gym.make(env_ident_name)), env_ident_name
-            env, env_ident_name = get_cartpole_env()    
+            env, env_ident_name = get_cartpole_env() 
+        else: env = None   
         max_ep_len=10000  
         env_targets = [15600.]           
-        scale = 1.       
+        scale = 1.  
+        env_max_act=5.     
     elif env_name=='openai-pendulum':
-        env = gym.make('Pendulum-v1')
+        if cluster: env = None
+        else: env = gym.make('Pendulum-v1')
         max_ep_len = 200
         env_targets = [-100, 0]  # evaluation conditioning targets
-        scale = 1.  # normalization for rewards/returns   
+        scale = 1.  # normalization for rewards/returns  
+        env_max_act=2. 
     elif env_name=='mujoco-pendulum':
         #env = gym.make('InvertedPendulum-v2')
-        env = InvertedPendulumEnv(offset=0.2)
+        if cluster: env = None
+        else: env = InvertedPendulumEnv(offset=0.2)
         max_ep_len = 1000
         env_targets = [1000]  # evaluation conditioning targets
         scale = 1.  # normalization for rewards/returns
+        env_max_act=3.
     elif env_name=='mountain-car':
         env = None
         max_ep_len = 1000
         env_targets = [100]
         scale = 1.
+        env_max_act=1.
     else:
         raise NotImplementedError
 
     if model_type == 'bc':
         env_targets = env_targets[:1]  # since BC ignores target, no need for different evaluations
 
-    print(type(env_targets))
     if use_states:
         state_dim = env.state_space.shape[0]
     else:
@@ -352,6 +364,8 @@ def experiment(
             resid_pdrop=variant['dropout'],
             attn_pdrop=variant['dropout'],
             action_tanh=True,
+            scale=env_max_act,
+            pos_embeds=True,
         )
     elif model_type == 'bc':
         model = MLPBCModel(
@@ -360,6 +374,7 @@ def experiment(
             max_length=K,
             hidden_size=variant['embed_dim'],
             n_layer=variant['n_layer'],
+            scalar=env_max_act,
         )
     elif model_type == 'sb-bc':
         model = NewMLPBCModel(
@@ -368,6 +383,7 @@ def experiment(
             max_length=K,
             hidden_size=variant['embed_dim'],
             n_layer=variant['n_layer'],
+            scalar=env_max_act,
         )
     elif model_type == 'dlstm':
         model = DecisionLSTM(
@@ -380,6 +396,7 @@ def experiment(
             batch_first=False,
             dropout = variant['dropout'],
             action_tanh=True,
+            scalar=env_max_act,
             # n_layer=variant['n_layer'],
             # n_head=variant['n_head'],
             # n_inner=4*variant['embed_dim'],
@@ -420,12 +437,12 @@ def experiment(
     
     start_iter = 1
 
-    if continue_training:
-        ## continue training from saved model
-        model_iter = 10
-        model = torch.load(
-            f'../../data/train_models/311221/qube-250_dt_swup-small_id0962001_iter{model_iter}.pt')
-        start_iter = model_iter + 1
+    # if continue_training:
+    #     ## continue training from saved model
+    #     model_iter = 10
+    #     model = torch.load(
+    #         f'../../data/train_models/311221/qube-250_dt_swup-small_id0962001_iter{model_iter}.pt')
+    #     start_iter = model_iter + 1
     
     model = model.to(device=device)
 
@@ -472,7 +489,7 @@ def experiment(
 
     run_id = str(time.time()).split('.')[0][3:]
     print('RUN ID ', run_id)
-    model_folder = f'../../data/train_models/{args.model_subfolder}'
+    model_folder = f'/work/scratch/ms37pyje/experiments-100222/train_models/{args.model_subfolder}'
     info_folder = f'{model_folder}/info'
 
     if not os.path.exists(f'{model_folder}/info'): os.makedirs(f'{model_folder}/info')
@@ -484,7 +501,7 @@ def experiment(
 
     ## save info for run
     with open(f'{info_folder}/{save_name}.json', 'w') as f:
-        print(type(variant))
+        #print(type(variant))
         v = {'id': run_id}
         v.update(variant)
         v.update(

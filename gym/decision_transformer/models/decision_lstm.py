@@ -16,6 +16,7 @@ class DecisionLSTM(TrajectoryModel):
         max_length=None,
         max_ep_len=4096,
         action_tanh=True,
+        scalar=1.,
         **kwargs    
     ):
         super().__init__(state_dim, act_dim, max_length=max_length) 
@@ -29,7 +30,6 @@ class DecisionLSTM(TrajectoryModel):
             **kwargs
         )
 
-        self.embed_timestep = nn.Embedding(max_ep_len, hidden_size)
         self.embed_return = torch.nn.Linear(1, hidden_size)
         self.embed_state = torch.nn.Linear(self.state_dim, hidden_size)
         self.embed_action = torch.nn.Linear(self.act_dim, hidden_size)
@@ -39,7 +39,7 @@ class DecisionLSTM(TrajectoryModel):
         # note: we don't predict states or returns for the paper
         self.predict_state = nn.Linear(hidden_size, self.state_dim)
         self.predict_action = nn.Sequential(
-            *([nn.Linear(hidden_size, self.act_dim)] + ([nn.Tanh()] if action_tanh else []) + ([MultiplyByScalarLayer(scalar=5)] if action_tanh else []))
+            *([nn.Linear(hidden_size, self.act_dim)] + ([nn.Tanh()] if action_tanh else []) + ([MultiplyByScalarLayer(scalar=scalar)] if action_tanh else []))
         )
         self.predict_return = nn.Linear(hidden_size, 1)
 
@@ -49,13 +49,7 @@ class DecisionLSTM(TrajectoryModel):
         # embed each modality with a different head
         state_embeddings = self.embed_state(states)
         action_embeddings = self.embed_action(actions)
-        returns_embeddings = self.embed_return(returns_to_go)
-        #time_embeddings = self.embed_timestep(timesteps)
-
-        # time embeddings are treated similar to positional embeddings
-        #state_embeddings = state_embeddings + time_embeddings
-        #action_embeddings = action_embeddings + time_embeddings
-        #returns_embeddings = returns_embeddings + time_embeddings
+        returns_embeddings = self.embed_return(returns_to_go)  
 
         # this makes the sequence look like (R_1, s_1, a_1, R_2, s_2, a_2, ...)
         # which works nice in an autoregressive sense since states predict actions

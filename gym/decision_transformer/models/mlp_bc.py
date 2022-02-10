@@ -2,6 +2,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+from .utils import MultiplyByScalarLayer
+
 from decision_transformer.models.model import TrajectoryModel
 
 
@@ -11,7 +13,7 @@ class MLPBCModel(TrajectoryModel):
     Simple MLP that predicts next action a from past states s.
     """
 
-    def __init__(self, state_dim, act_dim, hidden_size, n_layer, dropout=0.1, max_length=1, **kwargs):
+    def __init__(self, state_dim, act_dim, hidden_size, n_layer, dropout=0.1, max_length=1, scalar=1., **kwargs):
         super().__init__(state_dim, act_dim)
 
         self.hidden_size = hidden_size
@@ -29,6 +31,7 @@ class MLPBCModel(TrajectoryModel):
             nn.Dropout(dropout),
             nn.Linear(hidden_size, self.act_dim),
             nn.Tanh(),
+            MultiplyByScalarLayer(scalar=scalar)
         ])
 
         self.model = nn.Sequential(*layers)

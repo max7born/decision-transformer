@@ -620,7 +620,6 @@ class GPT2Model(GPT2PreTrainedModel):
             batch_size = input_ids.shape[0]
         elif inputs_embeds is not None:
             input_shape = inputs_embeds.size()[:-1]
-            #print(inputs_embeds.size())
             batch_size = inputs_embeds.shape[0]
         else:
             raise ValueError("You have to specify either input_ids or inputs_embeds")

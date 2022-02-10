@@ -24,6 +24,8 @@ class DecisionTransformer(TrajectoryModel):
             max_length=None,
             max_ep_len=4096,
             action_tanh=True,
+            scalar=1.,
+            pos_embeds = True,
             **kwargs
     ):
         super().__init__(state_dim, act_dim, max_length=max_length)
@@ -34,6 +36,7 @@ class DecisionTransformer(TrajectoryModel):
             n_embd=hidden_size,
             **kwargs
         )
+        self.pos_embeds = pos_embeds
 
         # note: the only difference between this GPT2Model and the default Huggingface version
         # is that the positional embeddings are removed (since we'll add those ourselves)
@@ -49,16 +52,14 @@ class DecisionTransformer(TrajectoryModel):
         # note: we don't predict states or returns for the paper
         self.predict_state = torch.nn.Linear(hidden_size, self.state_dim)
         self.predict_action = nn.Sequential(
-            *([nn.Linear(hidden_size, self.act_dim)] + ([nn.Tanh()] if action_tanh else []) + ([MultiplyByScalarLayer(scalar=3.)] if action_tanh else []))
+            *([nn.Linear(hidden_size, self.act_dim)] + ([nn.Tanh()] if action_tanh else []) + ([MultiplyByScalarLayer(scalar=scalar)] if action_tanh else []))
         )
-        print('action_tanh', action_tanh)
         self.predict_return = torch.nn.Linear(hidden_size, 1)
+        
 
     def forward(self, states, actions, rewards, returns_to_go, timesteps, attention_mask=None):
 
         batch_size, seq_length = states.shape[0], states.shape[1]
-
-        #attention_mask = None
 
         if attention_mask is None:
             # attention mask for GPT: 1 if can be attended to, 0 if not
@@ -70,12 +71,10 @@ class DecisionTransformer(TrajectoryModel):
         action_embeddings = self.embed_action(actions)
         returns_embeddings = self.embed_return(returns_to_go)
         time_embeddings = self.embed_timestep(timesteps)
-        #print(time_embeddings)
-        #input()
+        
 
         # time embeddings are treated similar to positional embeddings
-        pos_embeddings = False
-        if pos_embeddings:
+        if self.pos_embeds:
             state_embeddings = state_embeddings + time_embeddings
             action_embeddings = action_embeddings + time_embeddings
             returns_embeddings = returns_embeddings + time_embeddings
@@ -94,7 +93,6 @@ class DecisionTransformer(TrajectoryModel):
         stacked_attention_mask = torch.stack(
             (attention_mask, attention_mask, attention_mask), dim=1
         ).permute(0, 2, 1).reshape(batch_size, 3*seq_length)   
-        # print(attention_mask)
 
         # we feed in the input embeddings (not word indices as in NLP) to the model
         transformer_outputs = self.transformer(
@@ -102,8 +100,6 @@ class DecisionTransformer(TrajectoryModel):
             attention_mask=stacked_attention_mask,
         )      
         x = transformer_outputs['last_hidden_state']
-
-        #print(x.shape)
 
         # reshape x so that the second dimension corresponds to the original
         # returns (0), states (1), or actions (2); i.e. x[:,1,t] is the token for s_t
@@ -114,11 +110,7 @@ class DecisionTransformer(TrajectoryModel):
         # get predictions
         return_preds = self.predict_return(x[:,2])  # predict next return given state and action
         state_preds = self.predict_state(x[:,2])    # predict next state given state and action
-        action_preds = self.predict_action(x[:,1])  # predict next action given state
-        # action_preds *= 5  
-        #print(action_preds)    
-
-        #print('4', action_preds.shape)                     
+        action_preds = self.predict_action(x[:,1])  # predict next action given state                 
 
         return state_preds, action_preds, return_preds
 

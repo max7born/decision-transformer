@@ -12,7 +12,7 @@ class NewMLPBCModel(TrajectoryModel):
     Simple MLP that predicts next action a from past states s.
     """
 
-    def __init__(self, state_dim, act_dim, hidden_size, n_layer, dropout=0.1, max_length=1, **kwargs):
+    def __init__(self, state_dim, act_dim, hidden_size, n_layer, dropout=0.1, max_length=1, scalar=1., **kwargs):
         super().__init__(state_dim, act_dim)
 
         self.hidden_size = hidden_size
@@ -25,21 +25,16 @@ class NewMLPBCModel(TrajectoryModel):
                 nn.Tanh()
             ])
         layers.extend([
-            nn.Linear(hidden_size, self.act_dim), nn.Tanh(), MultiplyByScalarLayer(scalar=3.),
+            nn.Linear(hidden_size, self.act_dim), nn.Tanh(), MultiplyByScalarLayer(scalar=scalar),
         ])
 
         self.model = nn.Sequential(*layers)
 
     def forward(self, states, actions, rewards, attention_mask=None, target_return=None):
-        #print('1', states.shape)
-        #states = states[:,-self.max_length:].reshape(states.shape[0], -1)  # concat states
-        actions = self.model(states[:,-self.max_length:].reshape(states.shape[0], -1))
-        #print('2', states.shape)
-        #print('3', actions.shape)
-        #print('bf actions', actions)
-        #print(states.shape[0], self.act_dim)
-        actions = actions.reshape(states.shape[0], 1, self.act_dim)
-        #print('af actions', actions)
+
+        states = states[:,-self.max_length:].reshape(states.shape[0], -1)  # concat states
+        actions = self.model(states).reshape(states.shape[0], 1, self.act_dim)
+
         return None, actions, None
 
     def get_action(self, states, actions, rewards, **kwargs):
@@ -50,6 +45,4 @@ class NewMLPBCModel(TrajectoryModel):
                              dtype=torch.float32, device=states.device), states], dim=1)
         states = states.to(dtype=torch.float32)
         _, actions, _ = self.forward(states, None, None, **kwargs)
-        #print(actions)
-        #print(actions[0, -1])
         return actions[0,-1]
