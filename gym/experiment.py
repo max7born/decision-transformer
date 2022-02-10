@@ -135,11 +135,23 @@ def experiment(
     if model_type == 'bc':
         env_targets = env_targets[:1]  # since BC ignores target, no need for different evaluations
 
-    if use_states:
-        state_dim = env.state_space.shape[0]
+    if cluster:
+        if env_name == 'qube':
+            state_dim, act_dim = 6, 1
+        elif env_name == 'cartpole':
+            state_dim, act_dim = 5, 1   
+        elif env_name=='openai-pendulum':
+            state_dim, act_dim = 3, 1
+        elif env_name=='mujoco-pendulum':
+            state_dim, act_dim = 4, 1
+        elif env_name=='mountain-car':
+            state_dim, act_dim = 2, 1    
     else:
-        state_dim = env.observation_space.shape[0]
-    act_dim = env.action_space.shape[0]
+        if use_states:
+            state_dim = env.state_space.shape[0]
+        else:
+            state_dim = env.observation_space.shape[0]
+        act_dim = env.action_space.shape[0]
 
     load_json = False
 
