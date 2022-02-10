@@ -494,7 +494,7 @@ def experiment(
         wandb.init(
             name=exp_prefix,
             group=group_name,
-            project='decision-transformer',
+            project='test-exp',
             config=variant
         )
         # wandb.watch(model)  # wandb has some bug
@@ -504,6 +504,9 @@ def experiment(
     print('RUN ID ', run_id)
     model_folder = f'/work/scratch/ms37pyje/experiments-100222/train_models/{args.model_subfolder}'
     info_folder = f'{model_folder}/info'
+
+    if log_to_wandb:
+        wandb.log(dict(run_id=run_id))
 
     if not os.path.exists(f'{model_folder}/info'): os.makedirs(f'{model_folder}/info')
 
